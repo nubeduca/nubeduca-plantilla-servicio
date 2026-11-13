@@ -9,8 +9,11 @@ El ítem de outbox va en la misma tabla con:
     sk        = EVENTO#<eventId>
     source, detailType, detail (JSON en texto), ttl (7 días)
 
-Después, el Stream de la tabla lo lleva al bus `lms`: con EventBridge Pipes en AWS, o con
-la Lambda relay/stream_a_bus.py (ver serverless.yml, parámetro `outbox`).
+Antes de escribir, cada evento se valida contra su JSON Schema de nubeduca-contratos
+(lib/esquemas.py). Si alguno no cumple, se lanza EventoInvalido y no se guarda nada.
+
+Después, el Stream de la tabla lo lleva al bus: con EventBridge Pipes en AWS, o con la
+Lambda relay/stream_a_bus.py (ver serverless.yml, parámetro `outbox`).
 """
 
 import json
@@ -19,7 +22,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 
-from lib import config, ids, logs
+from lib import config, esquemas, ids, logs
 from lib import tabla as t
 
 TTL_EVENTO_SEGUNDOS = 7 * 24 * 60 * 60
@@ -86,6 +89,12 @@ def guardar(cambios: list[dict], eventos: list[dict]) -> None:
         {"Update": {"Key": {...}, "UpdateExpression": "...", ...}}
     Máximo 100 operaciones por transacción (límite de DynamoDB).
     """
+    for evento in eventos:  # contrato primero: si un evento no cumple, no se escribe nada
+        try:
+            esquemas.validar(evento["detailType"], evento["detail"])
+        except esquemas.EventoInvalido as exc:
+            logs.error(mensaje="Evento no cumple su contrato", detailType=exc.detail_type, errores=exc.errores)
+            raise
     nombre = t.tabla().name
     operaciones = []
     for cambio in cambios:

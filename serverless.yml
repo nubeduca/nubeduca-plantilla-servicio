@@ -3,7 +3,8 @@
 # (según tu OpenAPI en nubeduca-contratos) y el EventPattern de la regla del consumidor.
 #
 # Parámetros (serverless deploy --stage dev --param="outbox=pipe"):
-#   busName   bus de EventBridge. Con Compose llega de infra/bus (${bus.EventBusName}).
+#   busName   bus de EventBridge. Si no se pasa, se lee del SSM /nubeduca/<stage>/bus-name
+#             que crea PLT-03 (lms-<stage>); si ese parámetro no existe, usa 'lms' (LocalStack).
 #   outbox    lambda (por defecto) | pipe. Cómo viaja el outbox del Stream al bus.
 #   authMode  mock (por defecto, hasta AUTH-01) | cognito.
 
@@ -13,11 +14,11 @@ service: nubeduca-ms-plantilla
 
 params:
   default:
-    busName: lms
     outbox: lambda
     authMode: mock
 
 custom:
+  busName: ${param:busName, ssm:/nubeduca/${sls:stage}/bus-name, 'lms'}
   # Con outbox=lambda se enciende el relay; con outbox=pipe se crea el Pipe.
   relayEncendido:
     lambda: true
@@ -36,7 +37,7 @@ provider:
     SERVICIO: ms-plantilla
     EVENT_SOURCE: lms.plantilla
     TABLA: ${sls:stage}-t_plantilla
-    EVENT_BUS: ${param:busName}
+    EVENT_BUS: ${self:custom.busName}
     AUTH_MODE: ${param:authMode}
 
 package:
@@ -126,7 +127,7 @@ resources:
           FilterCriteria:
             Filters:
               - Pattern: '{"eventName":["INSERT"],"dynamodb":{"Keys":{"sk":{"S":[{"prefix":"EVENTO#"}]}}}}'
-        Target: arn:aws:events:${aws:region}:${aws:accountId}:event-bus/${param:busName}
+        Target: arn:aws:events:${aws:region}:${aws:accountId}:event-bus/${self:custom.busName}
         TargetParameters:
           InputTemplate: '<$.dynamodb.NewImage.detail.S>'
           EventBridgeEventBusParameters:
@@ -153,7 +154,7 @@ resources:
       Type: AWS::Events::Rule
       Properties:
         Name: nubeduca-${sls:stage}-plantilla
-        EventBusName: ${param:busName}
+        EventBusName: ${self:custom.busName}
         EventPattern:
           source: [lms.plantilla]
           detail-type: [lms.plantilla.example.created.v1]

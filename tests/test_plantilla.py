@@ -3,6 +3,8 @@
 import json
 
 import boto3
+import pytest
+from botocore.exceptions import ClientError
 
 from api import ejemplos, salud
 from consumidores import ejemplo as consumidor
@@ -86,21 +88,21 @@ def test_descarta_eventos_viejos(aws):
     assert _items("PROY#EXAMPLE#")[0]["title"] == "v2"
 
 
+EXM = "exm_01JCQRZHQT9F4WY2JYPDV546K7"
+
+
 def test_transaccion_atomica(aws):
     """Si el cambio falla, el evento tampoco se guarda (nunca 'guardar y luego publicar')."""
     evento = outbox.nuevo_evento(
         "lms.plantilla.example.created.v1",
-        tenant_id=TENANT, aggregate_type="example", aggregate_id="exm_x",
-        aggregate_version=1, actor_id="system", data={"exampleId": "exm_x", "title": "x"},
+        tenant_id=TENANT, aggregate_type="example", aggregate_id=EXM,
+        aggregate_version=1, actor_id="system", data={"exampleId": EXM, "title": "x"},
     )
-    t.tabla().put_item(Item={"tenant_id": TENANT, "sk": "EXAMPLE#exm_x"})
-    cambio = {"Put": {"Item": {"tenant_id": TENANT, "sk": "EXAMPLE#exm_x"},
+    t.tabla().put_item(Item={"tenant_id": TENANT, "sk": f"EXAMPLE#{EXM}"})
+    cambio = {"Put": {"Item": {"tenant_id": TENANT, "sk": f"EXAMPLE#{EXM}"},
                       "ConditionExpression": "attribute_not_exists(sk)"}}
-    try:
+    with pytest.raises(ClientError):  # falla la condición del cambio, no el contrato
         outbox.guardar([cambio], [evento])
-        assert False, "debió fallar"
-    except Exception:
-        pass
     assert _items("EVENTO#") == []
 
 

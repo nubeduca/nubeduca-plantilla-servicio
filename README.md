@@ -20,7 +20,7 @@ flowchart LR
     L2 -- "INBOX# + AGG# + cambio" --> DB2[("tabla del consumidor")]
 ```
 
-1. **Publicar (outbox).** El comando nunca llama a EventBridge. `outbox.guardar()` escribe el cambio y el ítem `EVENTO#<eventId>` en la misma `TransactWriteItems`: o se guardan los dos, o ninguno.
+1. **Publicar (outbox).** El comando nunca llama a EventBridge. `outbox.guardar()` primero **valida el evento contra su JSON Schema** de `nubeduca-contratos` y después escribe el cambio y el ítem `EVENTO#<eventId>` en la misma `TransactWriteItems`: o se guardan los dos, o ninguno. Si el evento no cumple su contrato, no se guarda nada.
 2. **Llevar al bus.** El Stream de la tabla manda cada `INSERT` de un `EVENTO#` al bus `lms`, con EventBridge Pipes o con la Lambda `relay/stream_a_bus.py`.
 3. **Consumir (inbox).** Una regla por consumidor copia el evento a su cola SQS. `inbox.manejar_lote()` guarda `INBOX#<eventId>` con escritura condicional en la misma transacción que el cambio, así un evento repetido se descarta. Un evento con `aggregateVersion` vieja también se descarta.
 
@@ -37,11 +37,14 @@ nubeduca-plantilla-servicio/
 │   ├── logs.py               # {"tipo": "INFO" | "ERROR", "log_datos": {...}}
 │   ├── tabla.py              # tabla única tenant_id + sk y prefijos reservados
 │   ├── outbox.py             # nuevo_evento() y guardar(cambios, eventos)
+│   ├── esquemas.py           # valida el detail contra su JSON Schema (sin dependencias)
 │   └── inbox.py              # leer_mensaje(), procesar() y manejar_lote()
 ├── api/                      # handlers HTTP (ejemplo: /health y /examples)
 ├── consumidores/             # reacciones a eventos (ejemplo: ejemplo.py)
+├── contratos/esquemas/       # copia de nubeduca-contratos/eventos/esquemas (se despliega con la Lambda)
 ├── relay/stream_a_bus.py     # outbox → bus cuando no se usa Pipe
 ├── scripts/probar_local.py   # criterio de LIB-01 en LocalStack
+├── scripts/copiar_esquemas.py  # actualiza contratos/esquemas desde nubeduca-contratos
 └── tests/                    # pytest + moto (sin AWS)
 ```
 
@@ -80,6 +83,8 @@ outbox.guardar(
 )
 ```
 
+Antes de guardar, `outbox.guardar()` valida cada evento con `lib/esquemas.py` contra `contratos/esquemas/<detail-type>.json`. Si falta un campo obligatorio, sobra un campo, un id no cumple su patrón o el evento no está en el catálogo, lanza `EventoInvalido` con la lista de errores y no escribe nada.
+
 El `detail` sale con la forma del contrato: `{"metadata": {eventId, tenantId, occurredAt, aggregateType, aggregateId, aggregateVersion, actorId, courseId?}, "data": {...}}`.
 
 ## Consumir un evento
@@ -104,8 +109,9 @@ En `serverless.yml`, la regla del consumidor filtra por `source` y `detail-type`
 
 1. Copia la plantilla a tu repo `nubeduca-ms-<nombre>`.
 2. En `serverless.yml`, cambia `org`, `service`, `SERVICIO`, `EVENT_SOURCE` (tu `source` del catálogo, por ejemplo `lms.content`), el nombre de la tabla y de las colas, y el `EventPattern` de la regla.
-3. Reemplaza `api/ejemplos.py` por las rutas de tu OpenAPI, y `consumidores/ejemplo.py` por tus reacciones.
-4. Agrega `poblar_datos.py` (30.000 registros, 10.000 por tenant) y la estructura JSON de tu tabla en tu README.
+3. Copia tus esquemas: `python scripts/copiar_esquemas.py --solo lms.content` (con tu `source`) y borra `contratos/esquemas/lms.plantilla.example.created.v1.json`.
+4. Reemplaza `api/ejemplos.py` por las rutas de tu OpenAPI, y `consumidores/ejemplo.py` por tus reacciones.
+5. Agrega `poblar_datos.py` (30.000 registros, 10.000 por tenant) y la estructura JSON de tu tabla en tu README.
 
 ## Parámetros de despliegue
 
@@ -117,11 +123,11 @@ serverless deploy --stage dev --param="authMode=cognito"       # cuando AUTH-01 
 
 | Parámetro | Por defecto | Para qué |
 |---|---|---|
-| `busName` | `lms` | Bus de EventBridge. Con Compose llega de `infra/bus` |
+| `busName` | SSM `/nubeduca/<stage>/bus-name` (`lms-<stage>`, de PLT-03), o `lms` si no existe | Bus de EventBridge |
 | `outbox` | `lambda` | `lambda`: relay con el Stream. `pipe`: EventBridge Pipes (hay que confirmar que el LabRole lo permite) |
 | `authMode` | `mock` | `mock`: token `Bearer mock.<tenant>.<ROL>.<userId>` del frontend. `cognito`: claims del authorizer |
 
-El bus `lms` lo crea `infra/bus` (PLT-04). Mientras no exista en AWS, créalo a mano: `aws events create-event-bus --name lms`.
+El bus lo crea `bus/` de `nubeduca-infra` (PLT-04) con el nombre `lms-<stage>`, y PLT-03 guarda ese nombre en SSM. Mientras no estén desplegados en tu cuenta, el servicio usa el bus `lms` (créalo con `aws events create-event-bus --name lms`).
 
 ## Probar
 
@@ -132,7 +138,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Cubren: publicar y consumir sin duplicados, descarte de eventos viejos, transacción atómica (si falla el cambio no se guarda el evento), tenant tomado del token y permisos.
+Son 15 pruebas. Cubren: publicar y consumir sin duplicados, descarte de eventos viejos, transacción atómica (si falla el cambio no se guarda el evento), tenant tomado del token, permisos y validación de contratos (los ejemplos oficiales de `nubeduca-contratos` pasan; un campo faltante, un campo extra, un tipo o patrón incorrecto, o un evento fuera del catálogo se rechazan sin escribir nada).
 
 ### Probar en local
 
@@ -161,6 +167,6 @@ eventos publicados: 1
 ## Pendiente
 
 - [ ] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
-- [ ] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
+- [x] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
 - [ ] Authorizer de Cognito en las rutas cuando AUTH-01 entregue el User Pool.
 - [ ] `traceparent` y X-Ray (PLT-06).
