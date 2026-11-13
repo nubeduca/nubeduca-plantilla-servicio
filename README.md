@@ -107,11 +107,12 @@ En `serverless.yml`, la regla del consumidor filtra por `source` y `detail-type`
 
 ## Cómo crear tu microservicio
 
-1. Copia la plantilla a tu repo `nubeduca-ms-<nombre>`.
-2. En `serverless.yml`, cambia `org`, `service`, `SERVICIO`, `EVENT_SOURCE` (tu `source` del catálogo, por ejemplo `lms.content`), el nombre de la tabla y de las colas, y el `EventPattern` de la regla.
+1. Copia la plantilla a tu repo `nubeduca-ms-<nombre>` (D1: un repo por microservicio). Ejemplos ya hechos: [`nubeduca-ms-usuarios`](https://github.com/nubeduca/nubeduca-ms-usuarios) y [`nubeduca-ms-cursos`](https://github.com/nubeduca/nubeduca-ms-cursos).
+2. En `serverless.yml`, borra la línea `org:` (Serverless v4 usa la org del equipo vía `SERVERLESS_ACCESS_KEY`) y cambia `service`, `SERVICIO`, `EVENT_SOURCE` (tu `source` del catálogo, por ejemplo `lms.content`), el nombre de la tabla y de las colas, y el `EventPattern` de la regla.
 3. Copia tus esquemas: `python scripts/copiar_esquemas.py --solo lms.content` (con tu `source`) y borra `contratos/esquemas/lms.plantilla.example.created.v1.json`.
 4. Reemplaza `api/ejemplos.py` por las rutas de tu OpenAPI, y `consumidores/ejemplo.py` por tus reacciones.
-5. Agrega `poblar_datos.py` (30.000 registros, 10.000 por tenant) y la estructura JSON de tu tabla en tu README.
+5. Agrega `scripts/poblar_datos.py --stage <stage>` (30.000 registros: UTEC 15.000, UPC 10.000 y PUCP 5.000, sin ítems `EVENTO#`) y la estructura JSON de tu tabla en tu README.
+6. Publica la URL de tu API en SSM (`/nubeduca/<stage>/api/<ms>/url`), como en ms-usuarios, para que el frontend y la prueba de humo de `desplegar.sh` la encuentren.
 
 ## Parámetros de despliegue
 
@@ -127,7 +128,7 @@ serverless deploy --stage dev --param="authMode=cognito"       # cuando AUTH-01 
 | `outbox` | `lambda` | `lambda`: relay con el Stream. `pipe`: EventBridge Pipes (hay que confirmar que el LabRole lo permite) |
 | `authMode` | `mock` | `mock`: token `Bearer mock.<tenant>.<ROL>.<userId>` del frontend. `cognito`: claims del authorizer |
 
-El bus lo crea `bus/` de `nubeduca-infra` (PLT-04) con el nombre `lms-<stage>`, y PLT-03 guarda ese nombre en SSM. Mientras no estén desplegados en tu cuenta, el servicio usa el bus `lms` (créalo con `aws events create-event-bus --name lms`).
+El bus lo crea `infra/bus` de [`nubeduca-backend`](https://github.com/nubeduca/nubeduca-backend) (PLT-04) con el nombre `lms-<stage>`, e `infra/base` (PLT-03) guarda ese nombre en SSM. En la cuenta de integración todo se despliega con `scripts/desplegar.sh` de ese repo. Mientras no estén desplegados en tu cuenta, el servicio usa el bus `lms` (créalo con `aws events create-event-bus --name lms`).
 
 ## Probar
 
@@ -145,7 +146,7 @@ Son 15 pruebas. Cubren: publicar y consumir sin duplicados, descarte de eventos 
 Con el LocalStack de LOC-01 levantado:
 
 ```bash
-cd nubeduca-infra/localstack && docker compose up -d --wait
+cd nubeduca-backend/localstack && docker compose up -d --wait
 cd ../../nubeduca-plantilla-servicio
 pip install -r requirements.txt
 python scripts/probar_local.py
@@ -169,4 +170,4 @@ eventos publicados: 1
 - [ ] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
 - [x] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
 - [ ] Authorizer de Cognito en las rutas cuando AUTH-01 entregue el User Pool.
-- [ ] `traceparent` y X-Ray (PLT-06).
+- [ ] X-Ray (`tracing` de API Gateway y Lambda) y alarma de la DLQ: en [PR #4](https://github.com/nubeduca/nubeduca-plantilla-servicio/pull/4) (PLT-06). Falta propagar `traceparent` en los eventos.
