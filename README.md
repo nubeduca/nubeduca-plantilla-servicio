@@ -108,11 +108,12 @@ En `serverless.yml`, la regla del consumidor filtra por `source` y `detail-type`
 ## Cómo crear tu microservicio
 
 1. Copia la plantilla a tu repo `nubeduca-ms-<nombre>` (D1: un repo por microservicio). Ejemplos ya hechos: [`nubeduca-ms-usuarios`](https://github.com/nubeduca/nubeduca-ms-usuarios) y [`nubeduca-ms-cursos`](https://github.com/nubeduca/nubeduca-ms-cursos).
-2. En `serverless.yml`, borra la línea `org:` (Serverless v4 usa la org del equipo vía `SERVERLESS_ACCESS_KEY`) y cambia `service`, `SERVICIO`, `EVENT_SOURCE` (tu `source` del catálogo, por ejemplo `lms.content`), el nombre de la tabla y de las colas, y el `EventPattern` de la regla.
+2. En `serverless.yml`, borra la línea `org:` (Serverless v4 usa la org del equipo vía `SERVERLESS_ACCESS_KEY`) y cambia `service`, `SERVICIO`, `EVENT_SOURCE` (tu `source` del catálogo, por ejemplo `lms.content`), el nombre de la tabla y de las colas, el `EventPattern` de la regla y el nombre del parámetro de la URL del API (`/nubeduca/<stage>/api/<ms>/url` en `ApiUrlParam`).
 3. Copia tus esquemas: `python scripts/copiar_esquemas.py --solo lms.content` (con tu `source`) y borra `contratos/esquemas/lms.plantilla.example.created.v1.json`.
 4. Reemplaza `api/ejemplos.py` por las rutas de tu OpenAPI, y `consumidores/ejemplo.py` por tus reacciones.
 5. Agrega `scripts/poblar_datos.py --stage <stage>` (30.000 registros: UTEC 15.000, UPC 10.000 y PUCP 5.000, sin ítems `EVENTO#`) y la estructura JSON de tu tabla en tu README.
-6. Publica la URL de tu API en SSM (`/nubeduca/<stage>/api/<ms>/url`), como en ms-usuarios, para que el frontend y la prueba de humo de `desplegar.sh` la encuentren.
+
+La URL de tu API se publica sola en SSM (`ApiUrlParam`), así el frontend y la prueba de humo de `desplegar.sh` la encuentran sin pasos manuales.
 
 ## Parámetros de despliegue
 
@@ -170,4 +171,5 @@ eventos publicados: 1
 - [ ] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
 - [x] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
 - [ ] Authorizer de Cognito en las rutas cuando AUTH-01 entregue el User Pool.
-- [ ] X-Ray (`tracing` de API Gateway y Lambda) y alarma de la DLQ: en [PR #4](https://github.com/nubeduca/nubeduca-plantilla-servicio/pull/4) (PLT-06). Falta propagar `traceparent` en los eventos.
+- [x] X-Ray (`tracing` de API Gateway y Lambda) y alarma de la DLQ (PLT-06).
+- [ ] Propagar `traceparent` en los eventos para encadenar la traza entre microservicios (PLT-06).
