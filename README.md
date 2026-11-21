@@ -118,15 +118,15 @@ La URL de tu API se publica sola en SSM (`ApiUrlParam`), así el frontend y la p
 ## Parámetros de despliegue
 
 ```bash
-serverless deploy --stage dev                                  # outbox con la Lambda relay
-serverless deploy --stage dev --param="outbox=pipe"            # outbox con EventBridge Pipes
+serverless deploy --stage dev                                  # outbox con EventBridge Pipes (por defecto, ADR-008)
+serverless deploy --stage dev --param="outbox=lambda"          # vuelta atrás: Lambda relay
 serverless deploy --stage dev --param="authMode=cognito"       # cuando AUTH-01 entregue Cognito
 ```
 
 | Parámetro | Por defecto | Para qué |
 |---|---|---|
 | `busName` | SSM `/nubeduca/<stage>/bus-name` (`lms-<stage>`, de PLT-03), o `lms` si no existe | Bus de EventBridge |
-| `outbox` | `lambda` | `lambda`: relay con el Stream. `pipe`: EventBridge Pipes (hay que confirmar que el LabRole lo permite) |
+| `outbox` | `pipe` | `pipe`: EventBridge Pipes (ADR-008, verificado con LabRole en dev y staging). `lambda`: relay con el Stream, como vuelta atrás |
 | `authMode` | `mock` | `mock`: token `Bearer mock.<tenant>.<ROL>.<userId>` del frontend. `cognito`: claims del authorizer |
 
 El bus lo crea `infra/bus` de [`nubeduca-backend`](https://github.com/nubeduca/nubeduca-backend) (PLT-04) con el nombre `lms-<stage>`, e `infra/base` (PLT-03) guarda ese nombre en SSM. En la cuenta de integración todo se despliega con `scripts/desplegar.sh` de ese repo. Mientras no estén desplegados en tu cuenta, el servicio usa el bus `lms` (créalo con `aws events create-event-bus --name lms`).
@@ -168,7 +168,7 @@ eventos publicados: 1
 
 ## Pendiente
 
-- [ ] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
+- [x] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
 - [x] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
 - [ ] Authorizer de Cognito en las rutas cuando AUTH-01 entregue el User Pool.
 - [x] X-Ray (`tracing` de API Gateway y Lambda) y alarma de la DLQ (PLT-06).
