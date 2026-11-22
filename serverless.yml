@@ -6,7 +6,7 @@
 #   busName   bus de EventBridge. Si no se pasa, se lee del SSM /nubeduca/<stage>/bus-name
 #             que crea PLT-03 (lms-<stage>); si ese parámetro no existe, usa 'lms' (LocalStack).
 #   outbox    pipe (por defecto, ADR-008) . Cómo viaja el outbox del Stream al bus.
-#   authMode  mock (por defecto, hasta AUTH-01) | cognito.
+#   authMode  mock (por defecto) | cognito (authorizer del User Pool de infra/auth, AUTH-01).
 
 # Cada integrante usa su propia org de Serverless; cámbiala por la tuya.
 org: tu-org
@@ -23,6 +23,14 @@ custom:
   relayEncendido:
     lambda: true
     pipe: false
+  # AUTH-01. authMode=cognito: API Gateway valida el ID token con el User Pool de infra/auth.
+  # authMode=mock: sin authorizer (token mock del frontend, LocalStack y pruebas).
+  autorizador:
+    cognito:
+      name: cognito
+      type: COGNITO_USER_POOLS
+      arn:
+        Fn::ImportValue: nubeduca-${sls:stage}-user-pool-arn
 
 provider:
   name: aws
@@ -60,10 +68,16 @@ functions:
   ejemplos:
     handler: api/ejemplos.lambda_handler
     events:
-      # Con AUTH-01 listo, agrega a cada ruta protegida:
-      #   authorizer: { type: COGNITO_USER_POOLS, arn: ${param:userPoolArn} }
-      - http: { path: /examples, method: get, cors: true }
-      - http: { path: /examples, method: post, cors: true }
+      - http:
+          path: /examples
+          method: get
+          cors: true
+          authorizer: ${self:custom.autorizador.${param:authMode}, null}
+      - http:
+          path: /examples
+          method: post
+          cors: true
+          authorizer: ${self:custom.autorizador.${param:authMode}, null}
 
   # Outbox → bus (solo si outbox=lambda). Lee el Stream y publica los EVENTO#.
   relayOutbox:

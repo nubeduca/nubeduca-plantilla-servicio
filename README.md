@@ -120,14 +120,14 @@ La URL de tu API se publica sola en SSM (`ApiUrlParam`), así el frontend y la p
 ```bash
 serverless deploy --stage dev                                  # outbox con EventBridge Pipes (por defecto, ADR-008)
 serverless deploy --stage dev --param="outbox=lambda"          # vuelta atrás: Lambda relay
-serverless deploy --stage dev --param="authMode=cognito"       # cuando AUTH-01 entregue Cognito
+serverless deploy --stage dev --param="authMode=cognito"       # authorizer de Cognito (AUTH-01)
 ```
 
 | Parámetro | Por defecto | Para qué |
 |---|---|---|
 | `busName` | SSM `/nubeduca/<stage>/bus-name` (`lms-<stage>`, de PLT-03), o `lms` si no existe | Bus de EventBridge |
 | `outbox` | `pipe` | `pipe`: EventBridge Pipes (ADR-008, verificado con LabRole en dev y staging). `lambda`: relay con el Stream, como vuelta atrás |
-| `authMode` | `mock` | `mock`: token `Bearer mock.<tenant>.<ROL>.<userId>` del frontend. `cognito`: claims del authorizer |
+| `authMode` | `mock` | `mock`: token `Bearer mock.<tenant>.<ROL>.<userId>`, sin authorizer (frontend con mocks, LocalStack y pruebas). `cognito`: API Gateway valida el ID token con el User Pool de `infra/auth` (export `nubeduca-<stage>-user-pool-arn`) |
 
 El bus lo crea `infra/bus` de [`nubeduca-backend`](https://github.com/nubeduca/nubeduca-backend) (PLT-04) con el nombre `lms-<stage>`, e `infra/base` (PLT-03) guarda ese nombre en SSM. En la cuenta de integración todo se despliega con `scripts/desplegar.sh` de ese repo. Mientras no estén desplegados en tu cuenta, el servicio usa el bus `lms` (créalo con `aws events create-event-bus --name lms`).
 
@@ -170,6 +170,6 @@ eventos publicados: 1
 
 - [x] Confirmar en AWS si el LabRole permite EventBridge Pipes (`outbox=pipe`). Si no, se queda la Lambda relay.
 - [x] Validar `detail` contra el JSON Schema de `nubeduca-contratos` antes de guardar el evento.
-- [ ] Authorizer de Cognito en las rutas cuando AUTH-01 entregue el User Pool.
+- [x] Authorizer de Cognito en las rutas (`authMode=cognito`, AUTH-01).
 - [x] X-Ray (`tracing` de API Gateway y Lambda) y alarma de la DLQ (PLT-06).
 - [ ] Propagar `traceparent` en los eventos para encadenar la traza entre microservicios (PLT-06).
